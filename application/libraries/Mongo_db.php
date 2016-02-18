@@ -36,7 +36,7 @@ Class Mongo_db{
 	private $selects = array();
 	private $updates = array();
 	private $wheres	= array();
-	private $limit	= 999999;
+	private $limit	= null;
 	private $offset	= 0;
 	private $sorts	= array();
 	private $return_as = 'array';
@@ -1462,7 +1462,7 @@ Class Mongo_db{
 	*
 	* @usage : $this->mongo_db->limit($x);
 	*/
-	public function limit($x = 99999)
+	public function limit($x = null)
 	{
 		if ($x !== NULL && is_numeric($x) && $x >= 1)
 		{
