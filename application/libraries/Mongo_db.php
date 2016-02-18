@@ -6,21 +6,25 @@
 * A library to interface with the NoSQL database MongoDB. For more information see http://www.mongodb.org
 *
 * @package CodeIgniter
-* @author Intekhab Rizvi | www.intekhab.in | me@intekhab.in
-* @copyright Copyright (c) 2014, Intekhab Rizvi.
+* @author gyuha
 * @license http://www.opensource.org/licenses/mit-license.php
-* @link http://intekhab.in
-* @version Version 1.0
-* Thanks to Alex Bilbie (http://alexbilbie.com) for help.
+* @link https://github.com/gyuha/Codeigniter-mongo-library
+* @version Version 0.1
+* forked from intekhabrizvi/Codeigniter-mongo-library
 */
 
 Class Mongo_db{
 
 	private $CI;
+	private $manager;
+	private $collection;
+	private $write_concerns;
+	private $read_preference;
 	private $config = array();
 	private $param = array();
 	private $activate;
-	private $connect;
+
+	// config
 	private $db;
 	private $hostname;
 	private $port;
@@ -28,8 +32,7 @@ Class Mongo_db{
 	private $username;
 	private $password;
 	private $debug;
-	private $write_concerns;
-	private $journal;
+
 	private $selects = array();
 	private $updates = array();
 	private $wheres	= array();
@@ -53,9 +56,7 @@ Class Mongo_db{
 
 	function __construct($param)
 	{
-
-		if ( ! class_exists('Mongo') && ! class_exists('MongoClient'))
-		{
+		if ( ! class_exists('MongoDB\Driver\Manager') && ! class_exists('MongoDB\Collection') ) {
 			show_error("The MongoDB PECL extension has not been installed or enabled", 500);
 		}
 		$this->CI =& get_instance();
@@ -67,28 +68,12 @@ Class Mongo_db{
 
 	/**
 	* --------------------------------------------------------------------------------
-	* Class Destructor
-	* --------------------------------------------------------------------------------
-	*
-	* Close all open connections.
-	*/
-	function __destruct()
-	{
-		if(is_object($this->connect))
-		{
-			$this->connect->close();
-		}
-	}
-
-	/**
-	* --------------------------------------------------------------------------------
 	* Prepare configuration for mongoDB connection
 	* --------------------------------------------------------------------------------
-	* 
+	*
 	* Validate group name or autoload default group name from config file.
 	* Validate all the properties present in config file of the group.
 	*/
-
 	private function prepare()
 	{
 		if(is_array($this->param) && count($this->param) > 0 && isset($this->param['activate']) == TRUE)
@@ -159,24 +144,6 @@ Class Mongo_db{
 				$this->debug = $this->config[$this->activate]['db_debug'];
 			}
 
-			if(empty($this->config[$this->activate]['write_concerns']))
-			{
-				$this->write_concerns = 1;
-			}
-			else
-			{
-				$this->write_concerns = $this->config[$this->activate]['write_concerns'];
-			}
-
-			if(empty($this->config[$this->activate]['journal']))
-			{
-				$this->journal = TRUE;
-			}
-			else
-			{
-				$this->journal = $this->config[$this->activate]['journal'];
-			}
-
 			if(empty($this->config[$this->activate]['return_as']))
 			{
 				$this->return_as = 'array';
@@ -185,9 +152,32 @@ Class Mongo_db{
 			{
 				$this->return_as = $this->config[$this->activate]['return_as'];
 			}
-		}
-		else
-		{
+
+			if(empty($this->config[$this->activate]['write_concern']))
+			{
+					$this->write_concerns = new MongoDB\Driver\WriteConcern(
+									MongoDB\Driver\WriteConcern::MAJORITY,
+									1000
+							);
+			}else{
+					$this->write_concerns = new MongoDB\Driver\WriteConcern(
+									$this->config[$this->activate]['write_concern'],
+									$this->config[$this->activate]['write_timeout']
+							);
+			}
+
+			if(empty($this->config[$this->activate]['read_preference']))
+			{
+					$this->read_preference = new MongoDB\Driver\ReadPreference(
+									MongoDB\Driver\ReadPreference::RP_PRIMARY
+							);
+			}else{
+					$this->read_preference = new MongoDB\Driver\ReadPreference(
+								$this->config[$this->activate]['read_preference'],
+								$this->config[$this->activate]['read_preference_tags']
+							);
+			}
+		}else{
 			show_error("mongodb config group :  <strong>{$this->activate}</strong> does not exist.", 500);
 		}
 	}
@@ -196,29 +186,18 @@ Class Mongo_db{
 	* --------------------------------------------------------------------------------
 	* Connect to MongoDB Database
 	* --------------------------------------------------------------------------------
-	* 
+	*
 	* Connect to mongoDB database or throw exception with the error message.
 	*/
-
 	private function connect()
 	{
 		$this->prepare();
 		try
 		{
-			$dns = "mongodb://{$this->hostname}:{$this->port}/{$this->database}";
-			if(isset($this->config[$this->activate]['no_auth']) == TRUE && $this->config[$this->activate]['no_auth'] == TRUE)
-			{
-				$options = array();
-			}
-			else
-			{
-				$options = array('username'=>$this->username, 'password'=>$this->password);
-			}
-			$this->connect = new MongoClient($dns, $options);
-			$this->db = $this->connect->selectDB($this->database);
-			$this->db = $this->connect->{$this->database};
+			$dns = "mongodb://{$this->username}:{$this->password}@{$this->hostname}:{$this->port}";
+			$this->manager = new MongoDB\Driver\Manager($dns);
 		}
-		catch (MongoConnectionException $e)
+		catch (MongoDB\Driver\Exception\ConnectionException $e)
 		{
 			if(isset($this->debug) == TRUE && $this->debug == TRUE)
 			{
@@ -252,29 +231,24 @@ Class Mongo_db{
 			show_error("Nothing to insert into Mongo collection or insert is not an array", 500);
 		}
 
-		try
-		{
-			$this->db->{$collection}->insert($insert, array('w' => $this->write_concerns, 'j'=>$this->journal));
-			if (isset($insert['_id']))
-			{
-				return ($insert['_id']);
-			}
-			else
-			{
-				return (FALSE);
-			}
-		}
-		catch (MongoCursorException $e)
-		{
+		$bulk = new MongoDB\Driver\BulkWrite;
+		$bulk->insert($insert);
+		try {
+			$result = $this->manager->executeBulkWrite($this->activate.".".$collection,
+												$bulk);
+			// TODO : 현재 write_concerns를 넣으면 오류가 발생 함. 패치 후 적용 검토
+			// $result = $this->manager->executeBulkWrite($this->activate.".".$collection,
+			// 									$bulk,
+			// 									$this->write_concerns);
+		} catch (MongoDB\Driver\Exception\Exception $e) {
 			if(isset($this->debug) == TRUE && $this->debug == TRUE)
 			{
-				show_error("Insert of data into MongoDB failed: {$e->getMessage()}", 500);
-			}
-			else
-			{
+				show_error("Insert of data into MongoDB failed: {$e->getMessage()}");
+			}else{
 				show_error("Insert of data into MongoDB failed", 500);
 			}
 		}
+		return $result->getInsertedCount();
 	}
 
 	/**
@@ -296,29 +270,29 @@ Class Mongo_db{
 		{
 			show_error("Nothing to insert into Mongo collection or insert is not an array", 500);
 		}
+
+		$bulk = new MongoDB\Driver\BulkWrite;
+		foreach ($insert as $i) {
+				$bulk->insert($i);
+		}
+
 		try
 		{
-			$this->db->{$collection}->batchInsert($insert, array('w' => $this->write_concerns, 'j'=>$this->journal));
-			if (isset($insert['_id']))
-			{
-				return ($insert['_id']);
+				$result = $this->manager->executeBulkWrite($this->activate.".".$collection,
+													$bulk);
+				// TODO : 현재 write_concerns를 넣으면 오류가 발생 함. 패치 후 적용 검토
+				// $result = $this->manager->executeBulkWrite($this->activate.".".$collection,
+				// 									$bulk,
+				// 									$this->write_concerns);
+			} catch (MongoDB\Driver\Exception\Exception $e) {
+				if(isset($this->debug) == TRUE && $this->debug == TRUE)
+				{
+					show_error("Insert of data into MongoDB failed: {$e->getMessage()}");
+				}else{
+					show_error("Insert of data into MongoDB failed", 500);
+				}
 			}
-			else
-			{
-				return (FALSE);
-			}
-		}
-		catch (MongoCursorException $e)
-		{
-			if(isset($this->debug) == TRUE && $this->debug == TRUE)
-			{
-				show_error("Batch insert of data into MongoDB failed: {$e->getMessage()}", 500);
-			}
-			else
-			{
-				show_error("Batch insert of data into MongoDB failed", 500);
-			}
-		}
+			return $result->getInsertedCount();
 	}
 
 	/**
@@ -760,12 +734,12 @@ Class Mongo_db{
 	* @usage : $this->mongo_db->get('foo');
 	*/
 	public function get($collection = "")
-	{			
+	{
 		if (empty($collection))
 		{
 			show_error("In order to retrieve documents from MongoDB, a collection name must be passed", 500);
 		}
-		try{	
+		try{
 			$documents = $this->db->{$collection}
 			->find($this->wheres, $this->selects)
 			->limit((int) $this->limit)
@@ -775,12 +749,12 @@ Class Mongo_db{
 			// Clear
 			$this->_clear();
 			$returns = array();
-			
+
 			while ($documents->hasNext())
 			{
 				if ($this->return_as == 'object')
 				{
-					$returns[] = (object) $documents->getNext();	
+					$returns[] = (object) $documents->getNext();
 				}
 				else
 				{
@@ -891,7 +865,7 @@ Class Mongo_db{
 	*
 	* @usage : $this->mongo_db->count('foo');
 	*/
-	public function count($collection = "") 
+	public function count($collection = "")
 	{
 		if (empty($collection))
 		{
@@ -1215,7 +1189,7 @@ Class Mongo_db{
 				show_error("MongoDB failed", 500);
 			}
 		}
-	}	
+	}
 
 	/**
 	* --------------------------------------------------------------------------------
@@ -1274,7 +1248,7 @@ Class Mongo_db{
 		}
 		if (count($this->updates) == 0)
 		{
-			show_error("Nothing to update in Mongo collection or update is not an array", 500);	
+			show_error("Nothing to update in Mongo collection or update is not an array", 500);
 		}
 		try
 		{
@@ -1327,7 +1301,7 @@ Class Mongo_db{
 			{
 				show_error("Delete of data into MongoDB failed", 500);
 			}
-			
+
 		}
 	}
 
@@ -1384,7 +1358,7 @@ Class Mongo_db{
 	 	{
 	 		show_error("In order to retreive documents from MongoDB, a collection name must be passed", 500);
 	 	}
- 		
+
  		if (empty($operation) && !is_array($operation))
 	 	{
 	 		show_error("Operation must be an array to perform aggregate.", 500);
@@ -1463,7 +1437,7 @@ Class Mongo_db{
 		{
 			return new MongoDate($stamp);
 		}
-		
+
 	}
 
 	 /**
@@ -1591,7 +1565,7 @@ Class Mongo_db{
 		}
 
 		try
-		{	
+		{
 			$this->db->{$collection}->deleteIndex($keys, $options);
 			$this->_clear();
 			return ($this);
@@ -1625,7 +1599,7 @@ Class Mongo_db{
 			show_error("No Mongo collection specified to remove all indexes from", 500);
 		}
 		return ($this->db->{$collection}->getIndexInfo());
-	}	
+	}
 
 	/**
 	* --------------------------------------------------------------------------------
@@ -1757,14 +1731,14 @@ Class Mongo_db{
 
 	private function explain($cursor, $collection, $aggregate=null)
 	{
-		array_push($this->benchmark, 
+		array_push($this->benchmark,
 			array(
 					'benchmark'=>$cursor->explain(),
 					'query'=> array(
-							'collection'=>$collection, 
+							'collection'=>$collection,
 							'select'=>$this->selects,
-							'update'=>$this->updates, 
-							'where'=>$this->wheres, 
+							'update'=>$this->updates,
+							'where'=>$this->wheres,
 							'sort'=>$this->sorts)
 				)
 		);

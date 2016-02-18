@@ -27,31 +27,23 @@
 
 $config['mongo_db']['active'] = 'default';
 
-$config['mongo_db']['default']['no_auth'] = FALSE;
-$config['mongo_db']['default']['hostname'] = 'localhost';
-$config['mongo_db']['default']['port'] = '27017';
-$config['mongo_db']['default']['username'] = 'username';
-$config['mongo_db']['default']['password'] = 'password';
-$config['mongo_db']['default']['database'] = 'database';
-$config['mongo_db']['default']['db_debug'] = TRUE;
-$config['mongo_db']['default']['return_as'] = 'array';
-$config['mongo_db']['default']['write_concerns'] = (int)1;
-$config['mongo_db']['default']['journal'] = TRUE;
-$config['mongo_db']['default']['read_preference'] = NULL;
-$config['mongo_db']['default']['read_preference_tags'] = NULL;
+$config['mongo_db']['talklish_log']['no_auth'] = FALSE;
+$config['mongo_db']['talklish_log']['hostname'] = '192.168.100.179';
+$config['mongo_db']['talklish_log']['port'] = '27017';
+$config['mongo_db']['talklish_log']['username'] = 'talklish';
+$config['mongo_db']['talklish_log']['password'] = 'dpsjwl';
+$config['mongo_db']['talklish_log']['database'] = 'talklish_log';
+$config['mongo_db']['talklish_log']['db_debug'] = TRUE;
+$config['mongo_db']['talklish_log']['return_as'] = 'array';
 
-$config['mongo_db']['default']['no_auth'] = FALSE;
-$config['mongo_db']['test']['hostname'] = 'localhost';
-$config['mongo_db']['test']['port'] = '27017';
-$config['mongo_db']['test']['username'] = 'username';
-$config['mongo_db']['test']['password'] = 'password';
-$config['mongo_db']['test']['database'] = 'database';
-$config['mongo_db']['test']['db_debug'] = TRUE;
-$config['mongo_db']['test']['return_as'] = 'array';
-$config['mongo_db']['test']['write_concerns'] = (int)1;
-$config['mongo_db']['test']['journal'] = TRUE;
-$config['mongo_db']['test']['read_preference'] = NULL;
-$config['mongo_db']['test']['read_preference_tags'] = NULL;
+$config['mongo_db']['talklish_log']['write_concern'] = "majority";
+$config['mongo_db']['talklish_log']['write_timeout'] = 1000;
+$config['mongo_db']['talklish_log']['journal'] = TRUE;
+
+$config['mongo_db']['talklish_log']['read_preference'] = NULL;
+$config['mongo_db']['talklish_log']['read_preference_tags'] = NULL;
+
+
 
 /* End of file database.php */
 /* Location: ./application/config/database.php */
