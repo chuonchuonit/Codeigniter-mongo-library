@@ -1098,12 +1098,12 @@ Class Mongo_db{
 		}
 
 		if(empty($options)) {
-			$options = ["limit" => 0, "upsert" => true];
+			$options = ["multi" => true];
 		}
 		$bulk = new MongoDB\Driver\BulkWrite;
 		D($this->updates);
 		D($options);
-		$bulk->update($this->wheres, $this->updates);
+		$bulk->update($this->wheres, $this->updates, $options);
 
 		try {
 				$result = $this->manager->executeBulkWrite($this->activate.".".$collection,
