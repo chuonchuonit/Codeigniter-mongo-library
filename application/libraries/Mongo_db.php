@@ -25,7 +25,6 @@ Class Mongo_db{
 	private $activate;
 
 	// config
-	private $db;
 	private $hostname;
 	private $port;
 	private $database;
@@ -1101,8 +1100,6 @@ Class Mongo_db{
 			$options = ["multi" => true];
 		}
 		$bulk = new MongoDB\Driver\BulkWrite;
-		D($this->updates);
-		D($options);
 		$bulk->update($this->wheres, $this->updates, $options);
 
 		try {
@@ -1121,48 +1118,6 @@ Class Mongo_db{
 		return $result->getMatchedCount();
 	}
 
-	/**
-	 * --------------------------------------------------------------------------------
-	 * Update all
-	 * --------------------------------------------------------------------------------
-	 *
-	 * Updates a collection of documents
-	 *
-	 * @usage: $this->mongo_db->update_all('foo', $data = array());
-	 */
-	public function update_all($collection = "", $data = array(), $options = array())
-	{
-		if (empty($collection))
-		{
-			show_error("No Mongo collection selected to update", 500);
-		}
-		if (is_array($data) && count($data) > 0)
-		{
-			$this->updates = array_merge($data, $this->updates);
-		}
-		if (count($this->updates) == 0)
-		{
-			show_error("Nothing to update in Mongo collection or update is not an array", 500);
-		}
-		try
-		{
-			$options = array_merge($options, array('w' => $this->write_concerns, 'j'=>$this->journal, 'multiple' => TRUE));
-			$this->db->{$collection}->update($this->wheres, $this->updates, $options);
-			$this->_clear();
-			return (TRUE);
-		}
-		catch (MongoCursorException $e)
-		{
-			if(isset($this->debug) == TRUE && $this->debug == TRUE)
-			{
-				show_error("Update of data into MongoDB failed: {$e->getMessage()}", 500);
-			}
-			else
-			{
-				show_error("Update of data into MongoDB failed", 500);
-			}
-		}
-	}
 
 	/**
 	 * --------------------------------------------------------------------------------
@@ -1205,7 +1160,7 @@ Class Mongo_db{
 	 *
 	 * Perform aggregation on mongodb collection
 	 *
-	 * @usage : $this->mongo_db->aggregate('foo', $ops = array());
+	 * @usage $this->mongo_db->aggregate('collection', ['_id'=> '$auth_code', 'count' => ['$sum' => '1']]))
 	 */
 	public function aggregate($collection, $operation)
 	{
@@ -1219,30 +1174,18 @@ Class Mongo_db{
 			show_error("Operation must be an array to perform aggregate.", 500);
 		}
 
-		try
-		{
-			$documents = $this->db->{$collection}->aggregate($operation);
-			$this->_clear();
-			if ($this->return_as == 'object')
-			{
-				return (object)$documents;
-			}
-			else
-			{
-				return $documents;
-			}
+		$command = new MongoDB\Driver\Command([
+			'aggregate' => $collection,
+			'pipeline' => [['$group' => $operation]]
+		]);
+		try {
+			$cursor = $this->manager->executeCommand($this->database, $command);
+		} catch (MongoDB\Driver\Exception\Exception $e) {
+			echo $e->getMessage(), "\n";
+			return false;
 		}
-		catch (MongoResultException $e)
-		{
-			if(isset($this->debug) == TRUE && $this->debug == TRUE)
-			{
-				show_error("Aggregation operation failed: {$e->getMessage()}", 500);
-			}
-			else
-			{
-				show_error("Aggregation operation failed.", 500);
-			}
-		}
+		$result = $cursor->toArray();
+		return $result[0]->result;
 	}
 
 	/**
@@ -1270,29 +1213,6 @@ Class Mongo_db{
 			}
 		}
 		return ($this);
-	}
-
-	/**
-	 * --------------------------------------------------------------------------------
-	 * Mongo Date
-	 * --------------------------------------------------------------------------------
-	 *
-	 * Create new MongoDate object from current time or pass timestamp to create
-	 * mongodate.
-	 *
-	 * @usage : $this->mongo_db->date($timestamp);
-	 */
-	public function date($stamp = FALSE)
-	{
-		if ( $stamp == FALSE )
-		{
-			return new MongoDate();
-		}
-		else
-		{
-			return new MongoDate($stamp);
-		}
-
 	}
 
 	/**
@@ -1456,60 +1376,6 @@ Class Mongo_db{
 		return ($this->db->{$collection}->getIndexInfo());
 	}
 
-	/**
-	 * --------------------------------------------------------------------------------
-	 * //! Switch database
-	 * --------------------------------------------------------------------------------
-	 *
-	 * Switch from default database to a different db
-	 *
-	 * $this->mongo_db->switch_db('foobar');
-	 */
-	public function switch_db($database = '')
-	{
-		if (empty($database))
-		{
-			show_error("To switch MongoDB databases, a new database name must be specified", 500);
-		}
-
-		$this->database = $database;
-
-		try
-		{
-			$this->db = $this->connect->{$this->database};
-			return (TRUE);
-		}
-		catch (Exception $e)
-		{
-			show_error("Unable to switch Mongo Databases: {$e->getMessage()}", 500);
-		}
-	}
-
-	/**
-	 * --------------------------------------------------------------------------------
-	 * //! Drop database
-	 * --------------------------------------------------------------------------------
-	 *
-	 * Drop a Mongo database
-	 * @usage: $this->mongo_db->drop_db("foobar");
-	 */
-	public function drop_db($database = '')
-	{
-		if (empty($database))
-		{
-			show_error('Failed to drop MongoDB database because name is empty', 500);
-		}
-
-		try
-		{
-			$this->connect->{$database}->drop();
-			return (TRUE);
-		}
-		catch (Exception $e)
-		{
-			show_error("Unable to drop Mongo database `{$database}`: {$e->getMessage()}", 500);
-		}
-	}
 
 	/**
 	 * --------------------------------------------------------------------------------
@@ -1526,15 +1392,20 @@ Class Mongo_db{
 			show_error('Failed to drop MongoDB collection because collection name is empty', 500);
 		}
 
-		try
-		{
-			$this->db->{$col}->drop();
-			return TRUE;
+		$cmd['drop'] = $col;
+		$command = new MongoDB\Driver\Command($cmd);
+
+		try {
+			$cursor = $this->manager->executeCommand($this->database, $command);
+		} catch (MongoDB\Driver\Exception\Exception $e) {
+			echo $e->getMessage(), "\n";
+			return false;
 		}
-		catch (Exception $e)
-		{
-			show_error("Unable to drop Mongo collection `{$col}`: {$e->getMessage()}", 500);
+		$result = $cursor->toArray();
+		if(!is_array($result)) {
+			return false;
 		}
+		return $result[0]->ok;
 	}
 
 	/**
@@ -1618,18 +1489,4 @@ Class Mongo_db{
 		return $option;
 	}
 
-	private function explain($cursor, $collection, $aggregate=null)
-	{
-		array_push($this->benchmark,
-			array(
-				'benchmark'=>$cursor->explain(),
-				'query'=> array(
-					'collection'=>$collection,
-					'select'=>$this->selects,
-					'update'=>$this->updates,
-					'where'=>$this->wheres,
-					'sort'=>$this->sorts)
-			)
-		);
-	}
 }
